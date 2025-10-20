@@ -27,6 +27,7 @@ internal final class UploadClient: SpeedTestable {
     private let jsonDecoder: JSONDecoder
     private let emitter = DispatchQueue(label: "uploader", qos: .userInteractive)
     private let measurementDuration: Int64
+    private var uploadCompleted: Bool = false
 
     required init(url: URL) {
         self.url = url
@@ -113,8 +114,14 @@ internal final class UploadClient: SpeedTestable {
         // Add error handler to catch WebSocket failures gracefully
         client.onError { error in
             print("UploadClient WebSocket error: \(error)")
-            // Fail the promise on error to prevent threading issues
-            promise.fail(error)
+
+            // Don't fail the promise if the error is due to normal upload completion
+            if !self.uploadCompleted {
+                // Fail the promise on error to prevent threading issues
+                promise.fail(error)
+            } else {
+                print("Error occurred after upload completed, ignoring")
+            }
         }
 
         client.connect(to: self.url, headers: self.httpHeaders, configuration: self.configuration)
@@ -170,6 +177,7 @@ internal final class UploadClient: SpeedTestable {
 
         func send(newLoadSize: Int) {
             guard NIODeadline.now() - self.startTime < TimeAmount.seconds(self.measurementDuration) else {
+                self.uploadCompleted = true
                 promise.succeed()
                 return
             }

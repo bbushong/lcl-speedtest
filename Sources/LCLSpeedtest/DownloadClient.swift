@@ -27,6 +27,7 @@ internal final class DownloadClient: SpeedTestable {
     private let jsonDecoder: JSONDecoder
     private let emitter = DispatchQueue(label: "downloader", qos: .userInteractive)
     private let measurementDuration: Int64
+    private var timeoutTriggered: Bool = false
 
     required init(url: URL) {
         self.url = url
@@ -84,6 +85,7 @@ internal final class DownloadClient: SpeedTestable {
             timeoutTask = el.scheduleTask(in: TimeAmount.seconds(self.measurementDuration)) {
                 if NIODeadline.now() - self.startTime >= TimeAmount.seconds(self.measurementDuration) {
                     print("Download timeout reached, closing connection")
+                    self.timeoutTriggered = true
                     _ = ws.close(code: .normalClosure)
                 }
             }
@@ -130,8 +132,15 @@ internal final class DownloadClient: SpeedTestable {
             print("DownloadClient WebSocket error: \(error)")
             // Cancel timeout task on error
             timeoutTask?.cancel()
-            // Fail the promise on error to prevent threading issues
-            promise.fail(error)
+
+            // Don't fail the promise if the error is due to our timeout closing the connection
+            // LCLWebSocketError error 3 = "Websocket not connected" which happens after we close
+            if !self.timeoutTriggered {
+                // Fail the promise on error to prevent threading issues
+                promise.fail(error)
+            } else {
+                print("Error occurred after timeout-triggered close, ignoring")
+            }
         }
 
         client.connect(
