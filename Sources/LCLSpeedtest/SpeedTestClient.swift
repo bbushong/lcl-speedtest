@@ -129,7 +129,7 @@ public struct SpeedTestClient {
                         if let error = error {
                             continuation.resume(throwing: error)
                         } else {
-                            continuation.resume(returning: progress.numBytes)
+                            continuation.resume(returning: Int(progress.appInfo.numBytes))
                         }
                     }
 
@@ -213,7 +213,7 @@ public struct SpeedTestClient {
                         if let error = error {
                             continuation.resume(throwing: error)
                         } else {
-                            continuation.resume(returning: progress.numBytes)
+                            continuation.resume(returning: Int(progress.appInfo.numBytes))
                         }
                     }
 

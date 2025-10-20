@@ -20,6 +20,7 @@ public enum SpeedTestError: Error {
     case rateLimited(String)
     case invalidURL
     case invalidTestURL(String)
+    case testFailed(String)
 
     case notImplemented
     case websocketCloseFailed(WebSocketErrorCode?)
@@ -41,6 +42,8 @@ extension SpeedTestError: CustomStringConvertible {
             return "URL is invalid."
         case .invalidTestURL(let string):
             return "Test target is invalid. Reason: \(string)"
+        case .testFailed(let message):
+            return "Test failed: \(message)"
         case .notImplemented:
             return "Not implemented yet."
         case .websocketCloseFailed(let webSocketErrorCode):
