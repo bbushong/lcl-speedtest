@@ -44,7 +44,7 @@ internal final class DownloadClient: SpeedTestable {
         self.deviceName = deviceName
     }
 
-    convenience init(url: URL, deviceName: String?, measurementDuration: Int64) {
+    init(url: URL, deviceName: String?, measurementDuration: Int64) {
         self.url = url
         self.eventloopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 4)
         self.startTime = .now()
