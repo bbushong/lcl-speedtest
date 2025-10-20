@@ -82,9 +82,34 @@ internal final class DownloadClient: SpeedTestable {
             print("websocket connected")
             websocket = ws
 
+            // Schedule early failure detection - if no data in 2s, server is broken
+            let earlyCheckEl = self.eventloopGroup.next()
+            let earlyCheckTask = earlyCheckEl.scheduleTask(in: TimeAmount.seconds(2)) {
+                // If no data received and connection is closed, fail immediately
+                if self.totalBytes == 0 && self.connectionClosed {
+                    print("Early failure detection: connection closed with no data after 2s")
+                    if !self.onFinishCalled, let onFinish = self.onFinish {
+                        self.onFinishCalled = true
+                        self.emitter.async {
+                            onFinish(
+                                DownloadClient.generateMeasurementProgress(
+                                    startTime: self.startTime,
+                                    numBytes: self.totalBytes,
+                                    direction: .download
+                                ),
+                                SpeedTestError.testFailed("Connection closed with no data")
+                            )
+                        }
+                    }
+                }
+            }
+
             // Schedule timeout to force close if download takes too long
             let el = self.eventloopGroup.next()
             timeoutTask = el.scheduleTask(in: TimeAmount.seconds(self.measurementDuration)) {
+                // Cancel early check when full timeout fires
+                earlyCheckTask.cancel()
+
                 guard NIODeadline.now() - self.startTime >= TimeAmount.seconds(self.measurementDuration) else {
                     return
                 }

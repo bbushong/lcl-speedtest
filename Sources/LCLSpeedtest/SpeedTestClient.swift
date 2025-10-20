@@ -179,8 +179,11 @@ public struct SpeedTestClient {
 
                     // Check if this is a protocol error that indicates we should try a different server
                     if errorMessage.contains("unknownControl") ||
+                       errorMessage.contains("Unknown opcode") ||
                        errorMessage.contains("Invalid reserved bits") ||
-                       errorMessage.contains("fragmentedControlFrame") {
+                       errorMessage.contains("fragmentedControlFrame") ||
+                       errorMessage.contains("invalidUTF8") ||
+                       errorMessage.contains("Text message is NOT UTF-8") {
                         print("  Protocol error detected - will try next server")
                         shouldTryNextServer = true
                         break
@@ -294,8 +297,11 @@ public struct SpeedTestClient {
 
                     // Check if this is a protocol error that indicates we should try a different server
                     if errorMessage.contains("unknownControl") ||
+                       errorMessage.contains("Unknown opcode") ||
                        errorMessage.contains("Invalid reserved bits") ||
-                       errorMessage.contains("fragmentedControlFrame") {
+                       errorMessage.contains("fragmentedControlFrame") ||
+                       errorMessage.contains("invalidUTF8") ||
+                       errorMessage.contains("Text message is NOT UTF-8") {
                         print("  Protocol error detected - will try next server")
                         shouldTryNextServer = true
                         break
