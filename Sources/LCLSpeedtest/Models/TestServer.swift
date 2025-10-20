@@ -73,11 +73,6 @@ extension TestServer {
             throw SpeedTestError.testServersOutOfCapacity
         }
 
-        // Try to decode error response first (for rate limiting, etc.)
-        if let errorResponse = try? JSONDecoder().decode(TestServerErrorResponse.self, from: result) {
-            throw SpeedTestError.rateLimited(errorResponse.error.title)
-        }
-
         let response = try JSONDecoder().decode(TestServerResponse.self, from: result)
         return response.results
     }
@@ -88,15 +83,4 @@ internal struct TestServerResponse: Codable {
 
     /// An array of `TestServer` for available test servers.
     let results: [TestServer]
-}
-
-/// Error response object from M-lab server when request fails.
-internal struct TestServerErrorResponse: Codable {
-    let error: TestServerErrorDetail
-}
-
-internal struct TestServerErrorDetail: Codable {
-    let type: String
-    let title: String
-    let status: Int
 }

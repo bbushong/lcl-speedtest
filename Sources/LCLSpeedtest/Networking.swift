@@ -82,6 +82,13 @@ internal struct Networking {
                     continuation.resume(throwing: SpeedTestError.testServersOutOfCapacity)
                 case 200...299:
                     continuation.resume(returning: data)
+                case 429:
+                    // Try to decode the rate limit error message from response body
+                    if let errorResponse = try? JSONDecoder().decode(ErrorResponse.self, from: data) {
+                        continuation.resume(throwing: SpeedTestError.rateLimited(errorResponse.error.title))
+                    } else {
+                        continuation.resume(throwing: SpeedTestError.rateLimited("Too many requests. Please try again later."))
+                    }
                 default:
                     continuation.resume(throwing: SpeedTestError.fetchContentFailed(statusCode))
                 }
@@ -89,5 +96,16 @@ internal struct Networking {
 
             task.resume()
         }
+    }
+
+    /// Error response structure from M-Lab API
+    private struct ErrorResponse: Codable {
+        let error: ErrorDetail
+    }
+
+    private struct ErrorDetail: Codable {
+        let type: String
+        let title: String
+        let status: Int
     }
 }
