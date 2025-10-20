@@ -143,13 +143,26 @@ internal final class DownloadClient: SpeedTestable {
             // Cancel timeout task on error
             timeoutTask?.cancel()
 
-            // Don't fail the promise if the error is due to our timeout closing the connection
-            // LCLWebSocketError error 3 = "Websocket not connected" which happens after we close
-            if !self.timeoutTriggered {
-                // Fail the promise on error to prevent threading issues
-                promise.fail(error)
+            // If timeout triggered the close, treat it as successful completion
+            // (the actual data will be evaluated in onFinish)
+            if self.timeoutTriggered {
+                print("Error occurred after timeout-triggered close - completing normally")
+                // Trigger onFinish to complete the test
+                if let onFinish = self.onFinish {
+                    self.emitter.async {
+                        onFinish(
+                            DownloadClient.generateMeasurementProgress(
+                                startTime: self.startTime,
+                                numBytes: self.totalBytes,
+                                direction: .download
+                            ),
+                            nil
+                        )
+                    }
+                }
             } else {
-                print("Error occurred after timeout-triggered close, ignoring")
+                // Genuine error - fail the promise
+                promise.fail(error)
             }
         }
 

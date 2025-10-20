@@ -115,12 +115,26 @@ internal final class UploadClient: SpeedTestable {
         client.onError { error in
             print("UploadClient WebSocket error: \(error)")
 
-            // Don't fail the promise if the error is due to normal upload completion
-            if !self.uploadCompleted {
-                // Fail the promise on error to prevent threading issues
-                promise.fail(error)
+            // If upload completed normally, treat error as successful completion
+            // (the actual data will be evaluated in onFinish)
+            if self.uploadCompleted {
+                print("Error occurred after upload completed - completing normally")
+                // Trigger onFinish to complete the test
+                if let onFinish = self.onFinish {
+                    self.emitter.async {
+                        onFinish(
+                            UploadClient.generateMeasurementProgress(
+                                startTime: self.startTime,
+                                numBytes: self.totalBytes,
+                                direction: .upload
+                            ),
+                            nil
+                        )
+                    }
+                }
             } else {
-                print("Error occurred after upload completed, ignoring")
+                // Genuine error - fail the promise
+                promise.fail(error)
             }
         }
 
