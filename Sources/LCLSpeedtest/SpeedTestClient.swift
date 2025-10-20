@@ -51,9 +51,9 @@ public struct SpeedTestClient {
     /// - Parameters:
     ///   - type: The type of test to run (download, upload, or both)
     ///   - connectionMode: The connection security mode (secure wss:// or insecure ws://). Defaults to .secure
-    ///   - testDuration: The maximum duration in seconds for each phase (download/upload). Defaults to 15 seconds
+    ///   - testDuration: The maximum duration in seconds for each phase (download/upload). Defaults to 10 seconds
     ///   - deviceName: Optional device name to include in test metadata
-    public mutating func start(with type: TestType, connectionMode: ConnectionMode = .secure, testDuration: Int64 = 15, deviceName: String? = nil) async throws {
+    public mutating func start(with type: TestType, connectionMode: ConnectionMode = .secure, testDuration: Int64 = 10, deviceName: String? = nil) async throws {
         do {
             let testServers = try await TestServer.discover()
 

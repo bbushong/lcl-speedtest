@@ -36,7 +36,7 @@ internal final class DownloadClient: SpeedTestable {
         self.totalBytes = 0
         self.jsonDecoder = JSONDecoder()
         self.deviceName = nil
-        self.measurementDuration = 15  // Default 15 seconds
+        self.measurementDuration = 10  // Default 10 seconds (NDT7 spec)
     }
 
     convenience init(url: URL, deviceName: String?) {
