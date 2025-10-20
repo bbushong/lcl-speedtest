@@ -32,6 +32,12 @@ public struct SpeedTestClient {
     /// when a measurement result is available.
     public var onDownloadMeasurement: ((SpeedTestMeasurement) -> Void)?
 
+    /// Callback function that will be invoked when a test server is selected
+    public var onServerSelected: ((TestServer) -> Void)?
+
+    /// The selected test server for the current/last test
+    public private(set) var selectedServer: TestServer?
+
     /// The download test client
     private var downloader: DownloadClient?
 
@@ -41,17 +47,29 @@ public struct SpeedTestClient {
     public init() {}
 
     /// Start the speed test according to the test type asynchronously.
-    public mutating func start(with type: TestType, deviceName: String? = nil) async throws {
+    ///
+    /// - Parameters:
+    ///   - type: The type of test to run (download, upload, or both)
+    ///   - connectionMode: The connection security mode (secure wss:// or insecure ws://). Defaults to .secure
+    ///   - deviceName: Optional device name to include in test metadata
+    public mutating func start(with type: TestType, connectionMode: ConnectionMode = .secure, deviceName: String? = nil) async throws {
         do {
             let testServers = try await TestServer.discover()
+
+            // Store and notify about selected server
+            if let firstServer = testServers.first {
+                self.selectedServer = firstServer
+                self.onServerSelected?(firstServer)
+            }
+
             switch type {
             case .download:
-                try await runDownloadTest(using: testServers, deviceName: deviceName)
+                try await runDownloadTest(using: testServers, connectionMode: connectionMode, deviceName: deviceName)
             case .upload:
-                try await runUploadTest(using: testServers, deviceName: deviceName)
+                try await runUploadTest(using: testServers, connectionMode: connectionMode, deviceName: deviceName)
             case .downloadAndUpload:
-                try await runDownloadTest(using: testServers, deviceName: deviceName)
-                try await runUploadTest(using: testServers, deviceName: deviceName)
+                try await runDownloadTest(using: testServers, connectionMode: connectionMode, deviceName: deviceName)
+                try await runUploadTest(using: testServers, connectionMode: connectionMode, deviceName: deviceName)
             }
         } catch {
             throw error
@@ -68,12 +86,21 @@ public struct SpeedTestClient {
     /// Run the download test using the available test servers
     private mutating func runDownloadTest(
         using testServers: [TestServer],
+        connectionMode: ConnectionMode,
         deviceName: String? = nil
     )
         async throws
     {
-        guard let downloadPath = testServers.first?.urls.downloadPath,
-            let downloadURL = URL(string: downloadPath)
+        let downloadPath: String?
+        switch connectionMode {
+        case .secure:
+            downloadPath = testServers.first?.urls.downloadPath
+        case .insecure:
+            downloadPath = testServers.first?.urls.insecureDownloadPath
+        }
+
+        guard let path = downloadPath,
+            let downloadURL = URL(string: path)
         else {
             throw SpeedTestError.invalidTestURL("Cannot locate URL for download test")
         }
@@ -87,12 +114,21 @@ public struct SpeedTestClient {
     /// Run the upload test using the available test servers
     private mutating func runUploadTest(
         using testServers: [TestServer],
+        connectionMode: ConnectionMode,
         deviceName: String? = nil
     )
         async throws
     {
-        guard let uploadPath = testServers.first?.urls.uploadPath,
-            let uploadURL = URL(string: uploadPath)
+        let uploadPath: String?
+        switch connectionMode {
+        case .secure:
+            uploadPath = testServers.first?.urls.uploadPath
+        case .insecure:
+            uploadPath = testServers.first?.urls.insecureUploadPath
+        }
+
+        guard let path = uploadPath,
+            let uploadURL = URL(string: path)
         else {
             throw SpeedTestError.invalidTestURL("Cannot locate URL for upload test")
         }

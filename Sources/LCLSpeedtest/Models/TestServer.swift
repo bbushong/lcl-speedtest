@@ -17,28 +17,28 @@ import FoundationNetworking
 #endif
 
 /// The M-Lab test server location
-internal struct TestServerLocation: Codable {
+public struct TestServerLocation: Codable {
     /// The contry in which the test server is located.
-    let country: String?
+    public let country: String?
 
     /// The city in which the test server is located.
-    let city: String?
+    public let city: String?
 }
 
 /// The M-Lab test server URL
-internal struct TestServerURLs: Codable {
+public struct TestServerURLs: Codable {
 
     /// The download test server URL (secure, start with wss).
-    let downloadPath: String
+    public let downloadPath: String
 
     /// The upload test server URL (secure, start with wss).
-    let uploadPath: String
+    public let uploadPath: String
 
     /// The download test server URL (insecure, start with ws)
-    let insecureDownloadPath: String
+    public let insecureDownloadPath: String
 
     /// The upload test server URL (insecure, start with ws)
-    let insecureUploadPath: String
+    public let insecureUploadPath: String
 
     enum CodingKeys: String, CodingKey {
         case downloadPath = "wss:///ndt/v7/download"
@@ -49,15 +49,15 @@ internal struct TestServerURLs: Codable {
 }
 
 /// The M-Lab test server
-internal struct TestServer: Codable {
+public struct TestServer: Codable {
     /// The name of the machine.
-    let machine: String
+    public let machine: String
 
     /// The location of the test server. See `TestServerLocation`.
-    let location: TestServerLocation
+    public let location: TestServerLocation
 
     /// The URLs of the test servers. See `TestServerURL`.
-    let urls: TestServerURLs
+    public let urls: TestServerURLs
 }
 
 extension TestServer {
@@ -66,11 +66,18 @@ extension TestServer {
     ///
     /// - Returns: an array of `TestServer`
     /// - Throws: `SpeedTestError.testServersOutOfCapacity` is test server is out of capacity and there is no test server available.
+    /// - Throws: `SpeedTestError.rateLimited` if too many requests have been made.
     internal static func discover() async throws -> [TestServer] {
         let result = try await Networking.fetch(from: discoverServerURL)
         if result.isEmpty {
             throw SpeedTestError.testServersOutOfCapacity
         }
+
+        // Try to decode error response first (for rate limiting, etc.)
+        if let errorResponse = try? JSONDecoder().decode(TestServerErrorResponse.self, from: result) {
+            throw SpeedTestError.rateLimited(errorResponse.error.title)
+        }
+
         let response = try JSONDecoder().decode(TestServerResponse.self, from: result)
         return response.results
     }
@@ -81,4 +88,15 @@ internal struct TestServerResponse: Codable {
 
     /// An array of `TestServer` for available test servers.
     let results: [TestServer]
+}
+
+/// Error response object from M-lab server when request fails.
+internal struct TestServerErrorResponse: Codable {
+    let error: TestServerErrorDetail
+}
+
+internal struct TestServerErrorDetail: Codable {
+    let type: String
+    let title: String
+    let status: Int
 }

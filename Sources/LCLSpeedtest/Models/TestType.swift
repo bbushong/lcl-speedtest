@@ -25,3 +25,12 @@ public enum TestType: String {
     /// Conduct download and upload tests.
     case downloadAndUpload
 }
+
+/// The connection security mode for speed tests.
+public enum ConnectionMode {
+    /// Use secure WebSocket connection (wss://) - slower but encrypted
+    case secure
+
+    /// Use insecure WebSocket connection (ws://) - faster but unencrypted
+    case insecure
+}

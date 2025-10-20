@@ -13,10 +13,11 @@
 import Foundation
 import NIOWebSocket
 
-enum SpeedTestError: Error {
+public enum SpeedTestError: Error {
     case fetchContentFailed(Int)
     case noDataFromServer
     case testServersOutOfCapacity
+    case rateLimited(String)
     case invalidURL
     case invalidTestURL(String)
 
@@ -26,7 +27,7 @@ enum SpeedTestError: Error {
 }
 
 extension SpeedTestError: CustomStringConvertible {
-    var description: String {
+    public var description: String {
         switch self {
         case .fetchContentFailed(let int):
             return "Cannot fetch content. Code (\(int)."
@@ -34,6 +35,8 @@ extension SpeedTestError: CustomStringConvertible {
             return "No data from server."
         case .testServersOutOfCapacity:
             return "Test servers are out of capacity. Please try again later."
+        case .rateLimited(let message):
+            return "Rate limited: \(message)"
         case .invalidURL:
             return "URL is invalid."
         case .invalidTestURL(let string):
