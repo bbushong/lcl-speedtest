@@ -117,12 +117,13 @@ public struct SpeedTestClient {
 
                 // Use continuation to track completion with data check
                 let bytesReceived: Int = try await withCheckedThrowingContinuation { continuation in
-                    downloader = DownloadClient(url: downloadURL, deviceName: deviceName, measurementDuration: testDuration)
-                    downloader?.onProgress = self.onDownloadProgress
-                    downloader?.onMeasurement = self.onDownloadMeasurement
+                    let client = DownloadClient(url: downloadURL, deviceName: deviceName, measurementDuration: testDuration)
+                    client.onProgress = self.onDownloadProgress
+                    client.onMeasurement = self.onDownloadMeasurement
+                    self.downloader = client
 
                     var hasResumed = false
-                    downloader?.onFinish = { progress, error in
+                    client.onFinish = { progress, error in
                         guard !hasResumed else { return }
                         hasResumed = true
 
@@ -135,7 +136,7 @@ public struct SpeedTestClient {
 
                     Task {
                         do {
-                            try await downloader?.start().get()
+                            try await client.start().get()
                         } catch {
                             if !hasResumed {
                                 hasResumed = true
@@ -201,12 +202,13 @@ public struct SpeedTestClient {
 
                 // Use continuation to track completion with data check
                 let bytesReceived: Int = try await withCheckedThrowingContinuation { continuation in
-                    uploader = UploadClient(url: uploadURL, deviceName: deviceName, measurementDuration: testDuration)
-                    uploader?.onProgress = self.onUploadProgress
-                    uploader?.onMeasurement = self.onUploadMeasurement
+                    let client = UploadClient(url: uploadURL, deviceName: deviceName, measurementDuration: testDuration)
+                    client.onProgress = self.onUploadProgress
+                    client.onMeasurement = self.onUploadMeasurement
+                    self.uploader = client
 
                     var hasResumed = false
-                    uploader?.onFinish = { progress, error in
+                    client.onFinish = { progress, error in
                         guard !hasResumed else { return }
                         hasResumed = true
 
@@ -219,7 +221,7 @@ public struct SpeedTestClient {
 
                     Task {
                         do {
-                            try await uploader?.start().get()
+                            try await client.start().get()
                         } catch {
                             if !hasResumed {
                                 hasResumed = true
