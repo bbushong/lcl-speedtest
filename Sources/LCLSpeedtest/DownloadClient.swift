@@ -109,6 +109,8 @@ internal final class DownloadClient: SpeedTestable {
             let result = self.onClose(closeCode: closeCode)
             switch result {
             case .success:
+                print("Connection closing normally")
+                promise.succeed()
                 if let onFinish = self.onFinish {
                     self.emitter.async {
                         onFinish(
@@ -122,6 +124,8 @@ internal final class DownloadClient: SpeedTestable {
                     }
                 }
             case .failure(let error):
+                print("Connection closing with error: \(error)")
+                promise.fail(error)
                 if let onFinish = self.onFinish {
                     self.emitter.async {
                         onFinish(
@@ -181,11 +185,13 @@ internal final class DownloadClient: SpeedTestable {
             }
         }
 
-        client.connect(
+        // Don't cascade connect promise - let onClosing/onError handle promise completion
+        // Otherwise promise succeeds on connection, before protocol errors can fail it
+        _ = client.connect(
             to: self.url,
             headers: self.httpHeaders,
             configuration: self.websocketConfiguration
-        ).cascade(to: promise)
+        )
         return promise.futureResult
     }
 
