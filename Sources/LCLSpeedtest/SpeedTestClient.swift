@@ -107,10 +107,65 @@ public struct SpeedTestClient {
             throw SpeedTestError.invalidTestURL("Cannot locate URL for download test")
         }
 
-        downloader = DownloadClient(url: downloadURL, deviceName: deviceName, measurementDuration: testDuration)
-        downloader?.onProgress = self.onDownloadProgress
-        downloader?.onMeasurement = self.onDownloadMeasurement
-        try await downloader?.start().get()
+        // Retry up to 3 times with 2 second delay between attempts
+        let maxAttempts = 3
+        var lastError: Error?
+
+        for attempt in 1...maxAttempts {
+            do {
+                print("Download attempt \(attempt) of \(maxAttempts)")
+
+                // Use continuation to track completion with data check
+                let bytesReceived: Int = try await withCheckedThrowingContinuation { continuation in
+                    downloader = DownloadClient(url: downloadURL, deviceName: deviceName, measurementDuration: testDuration)
+                    downloader?.onProgress = self.onDownloadProgress
+                    downloader?.onMeasurement = self.onDownloadMeasurement
+
+                    var hasResumed = false
+                    downloader?.onFinish = { progress, error in
+                        guard !hasResumed else { return }
+                        hasResumed = true
+
+                        if let error = error {
+                            continuation.resume(throwing: error)
+                        } else {
+                            continuation.resume(returning: progress.numBytes)
+                        }
+                    }
+
+                    Task {
+                        do {
+                            try await downloader?.start().get()
+                        } catch {
+                            if !hasResumed {
+                                hasResumed = true
+                                continuation.resume(throwing: error)
+                            }
+                        }
+                    }
+                }
+
+                // Check if we actually received data
+                if bytesReceived > 0 {
+                    print("Download succeeded on attempt \(attempt) with \(bytesReceived) bytes")
+                    return // Success!
+                } else {
+                    lastError = SpeedTestError.testFailed("Download completed but no data received")
+                    print("Download attempt \(attempt) failed: no data received")
+                }
+            } catch {
+                lastError = error
+                print("Download attempt \(attempt) failed: \(error)")
+            }
+
+            // Wait before retry (unless it's the last attempt)
+            if attempt < maxAttempts {
+                try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+            }
+        }
+
+        // If all attempts failed, throw the last error
+        throw lastError ?? SpeedTestError.testFailed("Download failed after \(maxAttempts) attempts")
     }
 
     /// Run the upload test using the available test servers
@@ -136,9 +191,64 @@ public struct SpeedTestClient {
             throw SpeedTestError.invalidTestURL("Cannot locate URL for upload test")
         }
 
-        uploader = UploadClient(url: uploadURL, deviceName: deviceName, measurementDuration: testDuration)
-        uploader?.onProgress = self.onUploadProgress
-        uploader?.onMeasurement = self.onUploadMeasurement
-        try await uploader?.start().get()
+        // Retry up to 3 times with 2 second delay between attempts
+        let maxAttempts = 3
+        var lastError: Error?
+
+        for attempt in 1...maxAttempts {
+            do {
+                print("Upload attempt \(attempt) of \(maxAttempts)")
+
+                // Use continuation to track completion with data check
+                let bytesReceived: Int = try await withCheckedThrowingContinuation { continuation in
+                    uploader = UploadClient(url: uploadURL, deviceName: deviceName, measurementDuration: testDuration)
+                    uploader?.onProgress = self.onUploadProgress
+                    uploader?.onMeasurement = self.onUploadMeasurement
+
+                    var hasResumed = false
+                    uploader?.onFinish = { progress, error in
+                        guard !hasResumed else { return }
+                        hasResumed = true
+
+                        if let error = error {
+                            continuation.resume(throwing: error)
+                        } else {
+                            continuation.resume(returning: progress.numBytes)
+                        }
+                    }
+
+                    Task {
+                        do {
+                            try await uploader?.start().get()
+                        } catch {
+                            if !hasResumed {
+                                hasResumed = true
+                                continuation.resume(throwing: error)
+                            }
+                        }
+                    }
+                }
+
+                // Check if we actually sent data
+                if bytesReceived > 0 {
+                    print("Upload succeeded on attempt \(attempt) with \(bytesReceived) bytes")
+                    return // Success!
+                } else {
+                    lastError = SpeedTestError.testFailed("Upload completed but no data sent")
+                    print("Upload attempt \(attempt) failed: no data sent")
+                }
+            } catch {
+                lastError = error
+                print("Upload attempt \(attempt) failed: \(error)")
+            }
+
+            // Wait before retry (unless it's the last attempt)
+            if attempt < maxAttempts {
+                try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+            }
+        }
+
+        // If all attempts failed, throw the last error
+        throw lastError ?? SpeedTestError.testFailed("Upload failed after \(maxAttempts) attempts")
     }
 }

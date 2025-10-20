@@ -28,6 +28,7 @@ internal final class DownloadClient: SpeedTestable {
     private let emitter = DispatchQueue(label: "downloader", qos: .userInteractive)
     private let measurementDuration: Int64
     private var timeoutTriggered: Bool = false
+    private var connectionClosed: Bool = false
 
     required init(url: URL) {
         self.url = url
@@ -83,6 +84,12 @@ internal final class DownloadClient: SpeedTestable {
             // Schedule timeout to force close if download takes too long
             let el = self.eventloopGroup.next()
             timeoutTask = el.scheduleTask(in: TimeAmount.seconds(self.measurementDuration)) {
+                // Only close if connection is still open
+                guard !self.connectionClosed else {
+                    print("Download timeout fired but connection already closed, skipping")
+                    return
+                }
+
                 if NIODeadline.now() - self.startTime >= TimeAmount.seconds(self.measurementDuration) {
                     print("Download timeout reached, closing connection")
                     self.timeoutTriggered = true
@@ -93,6 +100,9 @@ internal final class DownloadClient: SpeedTestable {
         client.onText(self.onText(ws:text:))
         client.onBinary(self.onBinary(ws:bytes:))
         client.onClosing { closeCode, _ in
+            // Mark connection as closed to prevent timeout from trying to close it
+            self.connectionClosed = true
+
             // Cancel timeout task when connection is closing
             timeoutTask?.cancel()
 
