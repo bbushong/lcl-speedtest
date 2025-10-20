@@ -93,80 +93,110 @@ public struct SpeedTestClient {
     )
         async throws
     {
-        let downloadPath: String?
-        switch connectionMode {
-        case .secure:
-            downloadPath = testServers.first?.urls.downloadPath
-        case .insecure:
-            downloadPath = testServers.first?.urls.insecureDownloadPath
+        guard !testServers.isEmpty else {
+            throw SpeedTestError.invalidTestURL("No test servers available")
         }
 
-        guard let path = downloadPath,
-            let downloadURL = URL(string: path)
-        else {
-            throw SpeedTestError.invalidTestURL("Cannot locate URL for download test")
-        }
-
-        // Retry up to 3 times with 2 second delay between attempts
-        let maxAttempts = 3
+        let maxRetriesPerServer = 3
         var lastError: Error?
 
-        for attempt in 1...maxAttempts {
-            do {
-                print("Download attempt \(attempt) of \(maxAttempts)")
+        // Try each server in sequence
+        for (serverIndex, server) in testServers.enumerated() {
+            let downloadPath: String
+            switch connectionMode {
+            case .secure:
+                downloadPath = server.urls.downloadPath
+            case .insecure:
+                downloadPath = server.urls.insecureDownloadPath
+            }
 
-                // Use continuation to track completion with data check
-                let bytesReceived: Int = try await withCheckedThrowingContinuation { continuation in
-                    let client = DownloadClient(url: downloadURL, deviceName: deviceName, measurementDuration: testDuration)
-                    client.onProgress = self.onDownloadProgress
-                    client.onMeasurement = self.onDownloadMeasurement
-                    self.downloader = client
+            guard let downloadURL = URL(string: downloadPath) else {
+                print("Server \(serverIndex + 1)/\(testServers.count) (\(server.machine)): Invalid URL, skipping")
+                lastError = SpeedTestError.invalidTestURL("Invalid URL for server \(server.machine)")
+                continue
+            }
 
-                    var hasResumed = false
-                    client.onFinish = { progress, error in
-                        guard !hasResumed else { return }
-                        hasResumed = true
+            print("Trying server \(serverIndex + 1)/\(testServers.count): \(server.machine) (\(server.location.city ?? "unknown"), \(server.location.country ?? "unknown"))")
 
-                        if let error = error {
-                            continuation.resume(throwing: error)
-                        } else {
-                            continuation.resume(returning: Int(progress.appInfo.numBytes))
-                        }
-                    }
+            // Retry current server up to 3 times
+            var shouldTryNextServer = false
 
-                    Task {
-                        do {
-                            try await client.start().get()
-                        } catch {
-                            if !hasResumed {
-                                hasResumed = true
+            for attempt in 1...maxRetriesPerServer {
+                do {
+                    print("  Download attempt \(attempt) of \(maxRetriesPerServer)")
+
+                    // Use continuation to track completion with data check
+                    let bytesReceived: Int = try await withCheckedThrowingContinuation { continuation in
+                        let client = DownloadClient(url: downloadURL, deviceName: deviceName, measurementDuration: testDuration)
+                        client.onProgress = self.onDownloadProgress
+                        client.onMeasurement = self.onDownloadMeasurement
+                        self.downloader = client
+
+                        var hasResumed = false
+                        client.onFinish = { progress, error in
+                            guard !hasResumed else { return }
+                            hasResumed = true
+
+                            if let error = error {
                                 continuation.resume(throwing: error)
+                            } else {
+                                continuation.resume(returning: Int(progress.appInfo.numBytes))
+                            }
+                        }
+
+                        Task {
+                            do {
+                                try await client.start().get()
+                            } catch {
+                                if !hasResumed {
+                                    hasResumed = true
+                                    continuation.resume(throwing: error)
+                                }
                             }
                         }
                     }
+
+                    // Check if we actually received data
+                    if bytesReceived > 0 {
+                        print("  ✓ Download succeeded with \(bytesReceived) bytes from \(server.machine)")
+                        return // Success!
+                    } else {
+                        lastError = SpeedTestError.testFailed("Download completed but no data received")
+                        print("  Download attempt \(attempt) failed: no data received")
+                    }
+                } catch {
+                    lastError = error
+                    let errorMessage = "\(error)"
+                    print("  Download attempt \(attempt) failed: \(errorMessage)")
+
+                    // Check if this is a protocol error that indicates we should try a different server
+                    if errorMessage.contains("unknownControl") ||
+                       errorMessage.contains("Invalid reserved bits") ||
+                       errorMessage.contains("fragmentedControlFrame") {
+                        print("  Protocol error detected - will try next server")
+                        shouldTryNextServer = true
+                        break
+                    }
                 }
 
-                // Check if we actually received data
-                if bytesReceived > 0 {
-                    print("Download succeeded on attempt \(attempt) with \(bytesReceived) bytes")
-                    return // Success!
-                } else {
-                    lastError = SpeedTestError.testFailed("Download completed but no data received")
-                    print("Download attempt \(attempt) failed: no data received")
+                // Wait before retry (unless it's the last attempt or we're moving to next server)
+                if attempt < maxRetriesPerServer && !shouldTryNextServer {
+                    try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
                 }
-            } catch {
-                lastError = error
-                print("Download attempt \(attempt) failed: \(error)")
             }
 
-            // Wait before retry (unless it's the last attempt)
-            if attempt < maxAttempts {
-                try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+            // If we should try next server, continue to next iteration
+            if shouldTryNextServer {
+                continue
             }
+
+            // If we got here without shouldTryNextServer being true, all retries for this server failed
+            // Continue to next server
+            print("  All attempts failed for \(server.machine), trying next server...")
         }
 
-        // If all attempts failed, throw the last error
-        throw lastError ?? SpeedTestError.testFailed("Download failed after \(maxAttempts) attempts")
+        // If all servers and all attempts failed, throw the last error
+        throw lastError ?? SpeedTestError.testFailed("Download failed after trying \(testServers.count) server(s)")
     }
 
     /// Run the upload test using the available test servers
@@ -178,79 +208,109 @@ public struct SpeedTestClient {
     )
         async throws
     {
-        let uploadPath: String?
-        switch connectionMode {
-        case .secure:
-            uploadPath = testServers.first?.urls.uploadPath
-        case .insecure:
-            uploadPath = testServers.first?.urls.insecureUploadPath
+        guard !testServers.isEmpty else {
+            throw SpeedTestError.invalidTestURL("No test servers available")
         }
 
-        guard let path = uploadPath,
-            let uploadURL = URL(string: path)
-        else {
-            throw SpeedTestError.invalidTestURL("Cannot locate URL for upload test")
-        }
-
-        // Retry up to 3 times with 2 second delay between attempts
-        let maxAttempts = 3
+        let maxRetriesPerServer = 3
         var lastError: Error?
 
-        for attempt in 1...maxAttempts {
-            do {
-                print("Upload attempt \(attempt) of \(maxAttempts)")
+        // Try each server in sequence
+        for (serverIndex, server) in testServers.enumerated() {
+            let uploadPath: String
+            switch connectionMode {
+            case .secure:
+                uploadPath = server.urls.uploadPath
+            case .insecure:
+                uploadPath = server.urls.insecureUploadPath
+            }
 
-                // Use continuation to track completion with data check
-                let bytesReceived: Int = try await withCheckedThrowingContinuation { continuation in
-                    let client = UploadClient(url: uploadURL, deviceName: deviceName, measurementDuration: testDuration)
-                    client.onProgress = self.onUploadProgress
-                    client.onMeasurement = self.onUploadMeasurement
-                    self.uploader = client
+            guard let uploadURL = URL(string: uploadPath) else {
+                print("Server \(serverIndex + 1)/\(testServers.count) (\(server.machine)): Invalid URL, skipping")
+                lastError = SpeedTestError.invalidTestURL("Invalid URL for server \(server.machine)")
+                continue
+            }
 
-                    var hasResumed = false
-                    client.onFinish = { progress, error in
-                        guard !hasResumed else { return }
-                        hasResumed = true
+            print("Trying server \(serverIndex + 1)/\(testServers.count): \(server.machine) (\(server.location.city ?? "unknown"), \(server.location.country ?? "unknown"))")
 
-                        if let error = error {
-                            continuation.resume(throwing: error)
-                        } else {
-                            continuation.resume(returning: Int(progress.appInfo.numBytes))
-                        }
-                    }
+            // Retry current server up to 3 times
+            var shouldTryNextServer = false
 
-                    Task {
-                        do {
-                            try await client.start().get()
-                        } catch {
-                            if !hasResumed {
-                                hasResumed = true
+            for attempt in 1...maxRetriesPerServer {
+                do {
+                    print("  Upload attempt \(attempt) of \(maxRetriesPerServer)")
+
+                    // Use continuation to track completion with data check
+                    let bytesReceived: Int = try await withCheckedThrowingContinuation { continuation in
+                        let client = UploadClient(url: uploadURL, deviceName: deviceName, measurementDuration: testDuration)
+                        client.onProgress = self.onUploadProgress
+                        client.onMeasurement = self.onUploadMeasurement
+                        self.uploader = client
+
+                        var hasResumed = false
+                        client.onFinish = { progress, error in
+                            guard !hasResumed else { return }
+                            hasResumed = true
+
+                            if let error = error {
                                 continuation.resume(throwing: error)
+                            } else {
+                                continuation.resume(returning: Int(progress.appInfo.numBytes))
+                            }
+                        }
+
+                        Task {
+                            do {
+                                try await client.start().get()
+                            } catch {
+                                if !hasResumed {
+                                    hasResumed = true
+                                    continuation.resume(throwing: error)
+                                }
                             }
                         }
                     }
+
+                    // Check if we actually sent data
+                    if bytesReceived > 0 {
+                        print("  ✓ Upload succeeded with \(bytesReceived) bytes to \(server.machine)")
+                        return // Success!
+                    } else {
+                        lastError = SpeedTestError.testFailed("Upload completed but no data sent")
+                        print("  Upload attempt \(attempt) failed: no data sent")
+                    }
+                } catch {
+                    lastError = error
+                    let errorMessage = "\(error)"
+                    print("  Upload attempt \(attempt) failed: \(errorMessage)")
+
+                    // Check if this is a protocol error that indicates we should try a different server
+                    if errorMessage.contains("unknownControl") ||
+                       errorMessage.contains("Invalid reserved bits") ||
+                       errorMessage.contains("fragmentedControlFrame") {
+                        print("  Protocol error detected - will try next server")
+                        shouldTryNextServer = true
+                        break
+                    }
                 }
 
-                // Check if we actually sent data
-                if bytesReceived > 0 {
-                    print("Upload succeeded on attempt \(attempt) with \(bytesReceived) bytes")
-                    return // Success!
-                } else {
-                    lastError = SpeedTestError.testFailed("Upload completed but no data sent")
-                    print("Upload attempt \(attempt) failed: no data sent")
+                // Wait before retry (unless it's the last attempt or we're moving to next server)
+                if attempt < maxRetriesPerServer && !shouldTryNextServer {
+                    try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
                 }
-            } catch {
-                lastError = error
-                print("Upload attempt \(attempt) failed: \(error)")
             }
 
-            // Wait before retry (unless it's the last attempt)
-            if attempt < maxAttempts {
-                try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+            // If we should try next server, continue to next iteration
+            if shouldTryNextServer {
+                continue
             }
+
+            // If we got here without shouldTryNextServer being true, all retries for this server failed
+            // Continue to next server
+            print("  All attempts failed for \(server.machine), trying next server...")
         }
 
-        // If all attempts failed, throw the last error
-        throw lastError ?? SpeedTestError.testFailed("Upload failed after \(maxAttempts) attempts")
+        // If all servers and all attempts failed, throw the last error
+        throw lastError ?? SpeedTestError.testFailed("Upload failed after trying \(testServers.count) server(s)")
     }
 }
