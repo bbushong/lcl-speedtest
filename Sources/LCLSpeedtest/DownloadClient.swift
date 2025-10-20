@@ -73,6 +73,7 @@ internal final class DownloadClient: SpeedTestable {
 
         var client = LCLWebSocket.client(on: self.eventloopGroup)
         var websocket: WebSocket?
+        var timeoutTask: Scheduled<Void>?
 
         client.onOpen { ws in
             print("websocket connected")
@@ -80,7 +81,7 @@ internal final class DownloadClient: SpeedTestable {
 
             // Schedule timeout to force close if download takes too long
             let el = self.eventloopGroup.next()
-            el.scheduleTask(in: TimeAmount.seconds(self.measurementDuration)) {
+            timeoutTask = el.scheduleTask(in: TimeAmount.seconds(self.measurementDuration)) {
                 if NIODeadline.now() - self.startTime >= TimeAmount.seconds(self.measurementDuration) {
                     print("Download timeout reached, closing connection")
                     _ = ws.close(code: .normalClosure)
@@ -90,6 +91,9 @@ internal final class DownloadClient: SpeedTestable {
         client.onText(self.onText(ws:text:))
         client.onBinary(self.onBinary(ws:bytes:))
         client.onClosing { closeCode, _ in
+            // Cancel timeout task when connection is closing
+            timeoutTask?.cancel()
+
             let result = self.onClose(closeCode: closeCode)
             switch result {
             case .success:
@@ -124,6 +128,8 @@ internal final class DownloadClient: SpeedTestable {
         // Add error handler to catch WebSocket failures gracefully
         client.onError { error in
             print("DownloadClient WebSocket error: \(error)")
+            // Cancel timeout task on error
+            timeoutTask?.cancel()
             // Fail the promise on error to prevent threading issues
             promise.fail(error)
         }
