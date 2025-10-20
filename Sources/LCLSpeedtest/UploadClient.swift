@@ -134,7 +134,22 @@ internal final class UploadClient: SpeedTestable {
                 }
             } else {
                 // Genuine error - fail the promise
+                print("Failing promise with error: \(error)")
                 promise.fail(error)
+
+                // Also trigger onFinish with the error to ensure continuation doesn't hang
+                if let onFinish = self.onFinish {
+                    self.emitter.async {
+                        onFinish(
+                            UploadClient.generateMeasurementProgress(
+                                startTime: self.startTime,
+                                numBytes: self.totalBytes,
+                                direction: .upload
+                            ),
+                            error
+                        )
+                    }
+                }
             }
         }
 

@@ -134,8 +134,12 @@ public struct SpeedTestClient {
 
                         var hasResumed = false
                         client.onFinish = { progress, error in
-                            guard !hasResumed else { return }
+                            guard !hasResumed else {
+                                print("  [DEBUG] onFinish called but already resumed")
+                                return
+                            }
                             hasResumed = true
+                            print("  [DEBUG] onFinish called with \(progress.appInfo.numBytes) bytes, error: \(String(describing: error))")
 
                             if let error = error {
                                 continuation.resume(throwing: error)
@@ -146,10 +150,14 @@ public struct SpeedTestClient {
 
                         Task {
                             do {
+                                print("  [DEBUG] Starting client.start()")
                                 try await client.start().get()
+                                print("  [DEBUG] client.start() completed successfully")
                             } catch {
+                                print("  [DEBUG] client.start() threw error: \(error)")
                                 if !hasResumed {
                                     hasResumed = true
+                                    print("  [DEBUG] Resuming continuation with error from Task catch")
                                     continuation.resume(throwing: error)
                                 }
                             }
