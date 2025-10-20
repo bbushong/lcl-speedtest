@@ -85,11 +85,13 @@ internal final class DownloadClient: SpeedTestable {
             // Schedule early failure detection - if no data in 2s, server is broken
             let earlyCheckEl = self.eventloopGroup.next()
             let earlyCheckTask = earlyCheckEl.scheduleTask(in: TimeAmount.seconds(2)) {
-                // If no data received and connection is closed, fail immediately
-                if self.totalBytes == 0 && self.connectionClosed {
-                    print("Early failure detection: connection closed with no data after 2s")
+                // If no data received after 2s, assume server is broken and fail immediately
+                // (Don't wait for full 10s timeout - some servers die silently without calling onError)
+                if self.totalBytes == 0 {
+                    print("Early failure detection: no data received after 2s (received \(self.totalBytes) bytes)")
                     if !self.onFinishCalled, let onFinish = self.onFinish {
                         self.onFinishCalled = true
+                        print("Calling onFinish from early detection")
                         self.emitter.async {
                             onFinish(
                                 DownloadClient.generateMeasurementProgress(
@@ -97,7 +99,7 @@ internal final class DownloadClient: SpeedTestable {
                                     numBytes: self.totalBytes,
                                     direction: .download
                                 ),
-                                SpeedTestError.testFailed("Connection closed with no data")
+                                SpeedTestError.testFailed("No data received after 2 seconds")
                             )
                         }
                     }
@@ -151,6 +153,8 @@ internal final class DownloadClient: SpeedTestable {
 
             // Cancel timeout task when connection is closing
             timeoutTask?.cancel()
+
+            print("onClosing called with closeCode: \(closeCode)")
 
             let result = self.onClose(closeCode: closeCode)
             switch result {
