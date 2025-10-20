@@ -110,6 +110,13 @@ internal final class UploadClient: SpeedTestable {
             }
         }
 
+        // Add error handler to catch WebSocket failures gracefully
+        client.onError { error in
+            print("UploadClient WebSocket error: \(error)")
+            // Fail the promise on error to prevent threading issues
+            promise.fail(error)
+        }
+
         client.connect(to: self.url, headers: self.httpHeaders, configuration: self.configuration)
             .cascade(to: promise)
 
