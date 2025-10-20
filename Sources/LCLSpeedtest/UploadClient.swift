@@ -26,6 +26,7 @@ internal final class UploadClient: SpeedTestable {
     private var deviceName: String?
     private let jsonDecoder: JSONDecoder
     private let emitter = DispatchQueue(label: "uploader", qos: .userInteractive)
+    private let measurementDuration: Int64
 
     required init(url: URL) {
         self.url = url
@@ -35,11 +36,23 @@ internal final class UploadClient: SpeedTestable {
         self.totalBytes = 0
         self.jsonDecoder = JSONDecoder()
         self.deviceName = nil
+        self.measurementDuration = 15  // Default 15 seconds
     }
 
     convenience init(url: URL, deviceName: String?) {
         self.init(url: url)
         self.deviceName = deviceName
+    }
+
+    convenience init(url: URL, deviceName: String?, measurementDuration: Int64) {
+        self.url = url
+        self.eventloopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 4)
+        self.startTime = .now()
+        self.previousTimeMark = .now()
+        self.totalBytes = 0
+        self.jsonDecoder = JSONDecoder()
+        self.deviceName = deviceName
+        self.measurementDuration = measurementDuration
     }
 
     var websocketConfiguration: LCLWebSocket.Configuration {
@@ -149,7 +162,7 @@ internal final class UploadClient: SpeedTestable {
         let promise = el.makePromise(of: Void.self)
 
         func send(newLoadSize: Int) {
-            guard NIODeadline.now() - self.startTime < TimeAmount.seconds(measurementDuration) else {
+            guard NIODeadline.now() - self.startTime < TimeAmount.seconds(self.measurementDuration) else {
                 promise.succeed()
                 return
             }

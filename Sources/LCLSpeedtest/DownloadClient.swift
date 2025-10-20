@@ -26,6 +26,7 @@ internal final class DownloadClient: SpeedTestable {
     private var deviceName: String?
     private let jsonDecoder: JSONDecoder
     private let emitter = DispatchQueue(label: "downloader", qos: .userInteractive)
+    private let measurementDuration: Int64
 
     required init(url: URL) {
         self.url = url
@@ -35,11 +36,23 @@ internal final class DownloadClient: SpeedTestable {
         self.totalBytes = 0
         self.jsonDecoder = JSONDecoder()
         self.deviceName = nil
+        self.measurementDuration = 15  // Default 15 seconds
     }
 
     convenience init(url: URL, deviceName: String?) {
         self.init(url: url)
         self.deviceName = deviceName
+    }
+
+    convenience init(url: URL, deviceName: String?, measurementDuration: Int64) {
+        self.url = url
+        self.eventloopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 4)
+        self.startTime = .now()
+        self.previousTimeMark = .now()
+        self.totalBytes = 0
+        self.jsonDecoder = JSONDecoder()
+        self.deviceName = deviceName
+        self.measurementDuration = measurementDuration
     }
 
     var websocketConfiguration: LCLWebSocket.Configuration {
@@ -56,11 +69,23 @@ internal final class DownloadClient: SpeedTestable {
 
     func start() throws -> EventLoopFuture<Void> {
         let promise = self.eventloopGroup.next().makePromise(of: Void.self)
+        self.startTime = .now()
 
         var client = LCLWebSocket.client(on: self.eventloopGroup)
+        var websocket: WebSocket?
+
         client.onOpen { ws in
             print("websocket connected")
+            websocket = ws
 
+            // Schedule timeout to force close if download takes too long
+            let el = self.eventloopGroup.next()
+            el.scheduleTask(in: TimeAmount.seconds(self.measurementDuration)) {
+                if NIODeadline.now() - self.startTime >= TimeAmount.seconds(self.measurementDuration) {
+                    print("Download timeout reached, closing connection")
+                    _ = ws.close(code: .normalClosure)
+                }
+            }
         }
         client.onText(self.onText(ws:text:))
         client.onBinary(self.onBinary(ws:bytes:))

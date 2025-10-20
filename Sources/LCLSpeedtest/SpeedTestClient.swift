@@ -51,8 +51,9 @@ public struct SpeedTestClient {
     /// - Parameters:
     ///   - type: The type of test to run (download, upload, or both)
     ///   - connectionMode: The connection security mode (secure wss:// or insecure ws://). Defaults to .secure
+    ///   - testDuration: The maximum duration in seconds for each phase (download/upload). Defaults to 15 seconds
     ///   - deviceName: Optional device name to include in test metadata
-    public mutating func start(with type: TestType, connectionMode: ConnectionMode = .secure, deviceName: String? = nil) async throws {
+    public mutating func start(with type: TestType, connectionMode: ConnectionMode = .secure, testDuration: Int64 = 15, deviceName: String? = nil) async throws {
         do {
             let testServers = try await TestServer.discover()
 
@@ -64,12 +65,12 @@ public struct SpeedTestClient {
 
             switch type {
             case .download:
-                try await runDownloadTest(using: testServers, connectionMode: connectionMode, deviceName: deviceName)
+                try await runDownloadTest(using: testServers, connectionMode: connectionMode, testDuration: testDuration, deviceName: deviceName)
             case .upload:
-                try await runUploadTest(using: testServers, connectionMode: connectionMode, deviceName: deviceName)
+                try await runUploadTest(using: testServers, connectionMode: connectionMode, testDuration: testDuration, deviceName: deviceName)
             case .downloadAndUpload:
-                try await runDownloadTest(using: testServers, connectionMode: connectionMode, deviceName: deviceName)
-                try await runUploadTest(using: testServers, connectionMode: connectionMode, deviceName: deviceName)
+                try await runDownloadTest(using: testServers, connectionMode: connectionMode, testDuration: testDuration, deviceName: deviceName)
+                try await runUploadTest(using: testServers, connectionMode: connectionMode, testDuration: testDuration, deviceName: deviceName)
             }
         } catch {
             throw error
@@ -87,6 +88,7 @@ public struct SpeedTestClient {
     private mutating func runDownloadTest(
         using testServers: [TestServer],
         connectionMode: ConnectionMode,
+        testDuration: Int64,
         deviceName: String? = nil
     )
         async throws
@@ -105,7 +107,7 @@ public struct SpeedTestClient {
             throw SpeedTestError.invalidTestURL("Cannot locate URL for download test")
         }
 
-        downloader = DownloadClient(url: downloadURL, deviceName: deviceName)
+        downloader = DownloadClient(url: downloadURL, deviceName: deviceName, measurementDuration: testDuration)
         downloader?.onProgress = self.onDownloadProgress
         downloader?.onMeasurement = self.onDownloadMeasurement
         try await downloader?.start().get()
@@ -115,6 +117,7 @@ public struct SpeedTestClient {
     private mutating func runUploadTest(
         using testServers: [TestServer],
         connectionMode: ConnectionMode,
+        testDuration: Int64,
         deviceName: String? = nil
     )
         async throws
@@ -133,7 +136,7 @@ public struct SpeedTestClient {
             throw SpeedTestError.invalidTestURL("Cannot locate URL for upload test")
         }
 
-        uploader = UploadClient(url: uploadURL, deviceName: deviceName)
+        uploader = UploadClient(url: uploadURL, deviceName: deviceName, measurementDuration: testDuration)
         uploader?.onProgress = self.onUploadProgress
         uploader?.onMeasurement = self.onUploadMeasurement
         try await uploader?.start().get()
