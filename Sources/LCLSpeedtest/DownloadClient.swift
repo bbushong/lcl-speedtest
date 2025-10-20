@@ -29,6 +29,7 @@ internal final class DownloadClient: SpeedTestable {
     private let measurementDuration: Int64
     private var timeoutTriggered: Bool = false
     private var connectionClosed: Bool = false
+    private var onFinishCalled: Bool = false
 
     required init(url: URL) {
         self.url = url
@@ -84,16 +85,36 @@ internal final class DownloadClient: SpeedTestable {
             // Schedule timeout to force close if download takes too long
             let el = self.eventloopGroup.next()
             timeoutTask = el.scheduleTask(in: TimeAmount.seconds(self.measurementDuration)) {
-                // Only close if connection is still open
-                guard !self.connectionClosed else {
-                    print("Download timeout fired but connection already closed, skipping")
+                guard NIODeadline.now() - self.startTime >= TimeAmount.seconds(self.measurementDuration) else {
                     return
                 }
 
-                if NIODeadline.now() - self.startTime >= TimeAmount.seconds(self.measurementDuration) {
-                    print("Download timeout reached, closing connection")
-                    self.timeoutTriggered = true
+                print("Download timeout reached")
+                self.timeoutTriggered = true
+
+                // Try to close if connection is still open
+                if !self.connectionClosed {
+                    print("Closing connection due to timeout")
                     _ = ws.close(code: .normalClosure)
+                } else {
+                    print("Connection already closed when timeout fired")
+                }
+
+                // ALWAYS call onFinish to ensure continuation resumes
+                // (in case onClosing never fired due to protocol errors)
+                if !self.onFinishCalled, let onFinish = self.onFinish {
+                    self.onFinishCalled = true
+                    print("Calling onFinish from timeout")
+                    self.emitter.async {
+                        onFinish(
+                            DownloadClient.generateMeasurementProgress(
+                                startTime: self.startTime,
+                                numBytes: self.totalBytes,
+                                direction: .download
+                            ),
+                            nil
+                        )
+                    }
                 }
             }
         }
@@ -111,7 +132,8 @@ internal final class DownloadClient: SpeedTestable {
             case .success:
                 print("Connection closing normally")
                 promise.succeed()
-                if let onFinish = self.onFinish {
+                if !self.onFinishCalled, let onFinish = self.onFinish {
+                    self.onFinishCalled = true
                     self.emitter.async {
                         onFinish(
                             DownloadClient.generateMeasurementProgress(
@@ -126,7 +148,8 @@ internal final class DownloadClient: SpeedTestable {
             case .failure(let error):
                 print("Connection closing with error: \(error)")
                 promise.fail(error)
-                if let onFinish = self.onFinish {
+                if !self.onFinishCalled, let onFinish = self.onFinish {
+                    self.onFinishCalled = true
                     self.emitter.async {
                         onFinish(
                             DownloadClient.generateMeasurementProgress(
@@ -151,8 +174,9 @@ internal final class DownloadClient: SpeedTestable {
             // (the actual data will be evaluated in onFinish)
             if self.timeoutTriggered {
                 print("Error occurred after timeout-triggered close - completing normally")
-                // Trigger onFinish to complete the test
-                if let onFinish = self.onFinish {
+                // Trigger onFinish to complete the test (if not already called from timeout)
+                if !self.onFinishCalled, let onFinish = self.onFinish {
+                    self.onFinishCalled = true
                     self.emitter.async {
                         onFinish(
                             DownloadClient.generateMeasurementProgress(
@@ -170,7 +194,8 @@ internal final class DownloadClient: SpeedTestable {
                 promise.fail(error)
 
                 // Also trigger onFinish with the error to ensure continuation doesn't hang
-                if let onFinish = self.onFinish {
+                if !self.onFinishCalled, let onFinish = self.onFinish {
+                    self.onFinishCalled = true
                     self.emitter.async {
                         onFinish(
                             DownloadClient.generateMeasurementProgress(
